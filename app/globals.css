@@ -1,0 +1,67 @@
+@import 'tailwindcss';
+
+/*
+ * Every color and font in the app is defined here and nowhere else.
+ * Swapping a palette means editing this block, not the components.
+ */
+@theme {
+  --font-sans: var(--font-plex), ui-sans-serif, system-ui, sans-serif;
+  --font-display: var(--font-archivo), ui-sans-serif, system-ui, sans-serif;
+
+  /* Chrome and text */
+  --color-steel-900: #101b29;
+  --color-steel-700: #2b3c4f;
+  --color-steel-500: #5a6875;
+  --color-steel-300: #d5dce5;
+  --color-steel-100: #eef1f5;
+  --color-surface: #ffffff;
+
+  /* Actions. hivis is a fill only — as text on white it fails contrast. */
+  --color-hivis-500: #f0a202;
+  --color-hivis-600: #c88402;
+  --color-utility-600: #1b6ac9;
+  --color-alert-600: #c8372d;
+
+  /*
+   * Status ramp. Not Airtable's blue/cyan/teal/green, which are four
+   * neighbours that blur at a glance — these separate by hue *and*
+   * lightness, so they survive greyscale, colorblindness and sunlight.
+   * Every -fg passes WCAG AA on its matching -bg.
+   */
+  --color-requested: #64748b;
+  --color-requested-bg: #eaedf1;
+  --color-requested-fg: #3e4a57;
+
+  --color-quoted: #f0a202;
+  --color-quoted-bg: #fdf0d5;
+  --color-quoted-fg: #8a5a02;
+
+  --color-scheduled: #1b6ac9;
+  --color-scheduled-bg: #e4eefb;
+  --color-scheduled-fg: #14538f;
+
+  --color-done: #1e8e55;
+  --color-done-bg: #e3f3e9;
+  --color-done-fg: #14663d;
+}
+
+body {
+  background-color: var(--color-steel-100);
+  color: var(--color-steel-900);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Visible focus everywhere — this app is used one-handed and by keyboard. */
+:focus-visible {
+  outline: 2px solid var(--color-utility-600);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

@@ -1,0 +1,40 @@
+# dependencies
+node_modules
+.pnp
+.pnp.js
+
+# builds
+.next
+out
+build
+*.tsbuildinfo
+next-env.d.ts
+
+# secrets — covers .env, .env.local, .env.production, etc.
+# .env.example is the one exception: it documents the keys with no values.
+.env*
+!.env.example
+
+# credentials and certs
+*.pem
+*.key
+*.p12
+
+# test / coverage
+coverage
+.nyc_output
+
+# logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+
+# deploy
+.vercel
+
+# editor and OS
+.DS_Store
+Thumbs.db
+.idea
+*.swp
