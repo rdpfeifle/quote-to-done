@@ -4,6 +4,7 @@ import {
   type Client,
   type Job,
   type JobOptions,
+  type NewClientInput,
   type NewJobInput,
   type Status,
   isStatus,
@@ -199,6 +200,19 @@ export async function listClients(): Promise<Client[]> {
  * Jobs with their linked customer resolved to a name, so the browser never has
  * to deal with Airtable's linked-record ID arrays.
  */
+export async function createClient(input: NewClientInput): Promise<Client> {
+  const fields: Record<string, unknown> = { [FIELDS.name]: input.name }
+  if (input.phone) fields[FIELDS.phone] = input.phone
+  if (input.email) fields[FIELDS.email] = input.email
+  if (input.address) fields[FIELDS.address] = input.address
+
+  const record = await request<AirtableRecord>(TABLES.clients, {
+    method: 'POST',
+    body: JSON.stringify({ fields, typecast: false }),
+  })
+  return toClient(record)
+}
+
 export async function listJobs(): Promise<Job[]> {
   const [jobRecords, clients] = await Promise.all([listAll(TABLES.jobs), listClients()])
   const clientNames = new Map(clients.map((client) => [client.id, client.name]))

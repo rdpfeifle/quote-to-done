@@ -46,6 +46,13 @@ export interface Job {
   notes: string | null
 }
 
+export interface NewClientInput {
+  name: string
+  phone?: string | null
+  email?: string | null
+  address?: string | null
+}
+
 export interface NewJobInput {
   customerId: string
   jobType: string

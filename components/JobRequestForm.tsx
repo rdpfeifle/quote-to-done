@@ -6,11 +6,21 @@ import { AlertCircle } from 'lucide-react'
 
 import { equipmentIcon } from '@/components/chips'
 import { localInputToIso } from '@/lib/format'
+import {
+  formatPhoneInput,
+  phoneDigits,
+  validateCustomerName,
+  validateEmail,
+  validatePhone,
+} from '@/lib/validation'
 import { type Client, type JobOptions, previewTitle } from '@/lib/types'
 
 const inputClass =
   'h-11 w-full rounded-lg border border-steel-300 bg-surface px-3 text-base text-steel-900 placeholder:text-steel-500'
 const labelClass = 'block font-display text-sm font-bold text-steel-700'
+
+/** Sentinel for the dropdown entry that reveals the new-customer fields. */
+const NEW_CUSTOMER = '__new__'
 
 function FieldError({ message }: { message?: string }) {
   if (!message) return null
@@ -68,6 +78,12 @@ export function JobRequestForm() {
   const [ready, setReady] = useState(false)
 
   const [customerId, setCustomerId] = useState('')
+  const [newCustomer, setNewCustomer] = useState({
+    name: '',
+    phone: '',
+    email: '',
+    address: '',
+  })
   const [jobType, setJobType] = useState('')
   const [equipment, setEquipment] = useState('')
   const [priority, setPriority] = useState('')
@@ -116,16 +132,28 @@ export function JobRequestForm() {
     }
   }, [])
 
+  const creatingCustomer = customerId === NEW_CUSTOMER
+
   // Title is a formula in Airtable, so show what the job will be filed as.
   const titlePreview = useMemo(() => {
-    const customer = clients.find((client) => client.id === customerId)
-    if (!equipment || !jobType || !customer) return null
-    return previewTitle(equipment, jobType, customer.name)
-  }, [clients, customerId, equipment, jobType])
+    const name = creatingCustomer
+      ? newCustomer.name.trim()
+      : clients.find((client) => client.id === customerId)?.name
+    if (!equipment || !jobType || !name) return null
+    return previewTitle(equipment, jobType, name)
+  }, [clients, creatingCustomer, customerId, equipment, jobType, newCustomer.name])
 
   function validate() {
     const next: Record<string, string> = {}
     if (!customerId) next.customerId = 'Pick the customer this job is for.'
+    if (creatingCustomer) {
+      const nameError = validateCustomerName(newCustomer.name)
+      const phoneError = validatePhone(newCustomer.phone)
+      const emailError = validateEmail(newCustomer.email)
+      if (nameError) next.newCustomerName = nameError
+      if (phoneError) next.newCustomerPhone = phoneError
+      if (emailError) next.newCustomerEmail = emailError
+    }
     if (!equipment) next.equipment = 'Choose the equipment.'
     if (!jobType) next.jobType = 'Choose the type of work.'
     if (quoteAmount) {
@@ -146,11 +174,36 @@ export function JobRequestForm() {
 
     setSubmitting(true)
     try {
+      /*
+       * A brand-new customer is saved first, because the job needs its record
+       * ID to link against. If the job write then fails the customer is still
+       * created — harmless, and it stays available for the retry.
+       */
+      let linkedCustomerId = customerId
+      if (creatingCustomer) {
+        const clientResponse = await fetch('/api/clients', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name: newCustomer.name.trim(),
+            phone: newCustomer.phone.trim() || null,
+            email: newCustomer.email.trim() || null,
+            address: newCustomer.address.trim() || null,
+          }),
+        })
+        if (!clientResponse.ok) {
+          const body = (await clientResponse.json().catch(() => null)) as { error?: string } | null
+          throw new Error(body?.error ?? 'Could not save the new customer.')
+        }
+        const { client } = (await clientResponse.json()) as { client: Client }
+        linkedCustomerId = client.id
+      }
+
       const response = await fetch('/api/jobs', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          customerId,
+          customerId: linkedCustomerId,
           jobType,
           equipment,
           priority: priority || null,
@@ -201,6 +254,7 @@ export function JobRequestForm() {
           className={`${inputClass} mt-1.5`}
         >
           <option value="">Select a customer…</option>
+          <option value={NEW_CUSTOMER}>+ Add new customer</option>
           {clients.map((client) => (
             <option key={client.id} value={client.id}>
               {client.name}
@@ -208,6 +262,107 @@ export function JobRequestForm() {
           ))}
         </select>
         <FieldError message={errors.customerId} />
+
+        {creatingCustomer && (
+          <div className="mt-3 rounded-lg border border-steel-300 bg-steel-100 p-4">
+            <p className="font-display text-sm font-bold text-steel-700">New customer</p>
+            <p className="mt-1 text-sm text-steel-500">
+              Saved to Airtable when you create the job. Only the name is required.
+            </p>
+
+            <div className="mt-3 flex flex-col gap-3">
+              <div>
+                <label htmlFor="new-name" className="sr-only">
+                  Customer name
+                </label>
+                <input
+                  id="new-name"
+                  type="text"
+                  value={newCustomer.name}
+                  onChange={(event) => {
+                    // Digits are rejected at the keystroke, not just on submit.
+                    const name = event.target.value.replace(/\d/g, '')
+                    setNewCustomer((current) => ({ ...current, name }))
+                    clearError('newCustomerName')
+                  }}
+                  placeholder="Name"
+                  aria-invalid={Boolean(errors.newCustomerName)}
+                  className={inputClass}
+                />
+                <FieldError message={errors.newCustomerName} />
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div>
+                  <label htmlFor="new-phone" className="sr-only">
+                    Phone
+                  </label>
+                  <input
+                    id="new-phone"
+                    type="tel"
+                    inputMode="numeric"
+                    autoComplete="tel-national"
+                    value={newCustomer.phone}
+                    maxLength={14}
+                    onChange={(event) => {
+                      const raw = event.target.value
+                      setNewCustomer((current) => {
+                        let digits = phoneDigits(raw)
+                        /*
+                         * Backspacing onto a separator would otherwise re-add it
+                         * and trap the caret, so remove the digit before it.
+                         */
+                        if (raw.length < current.phone.length && digits === phoneDigits(current.phone)) {
+                          digits = digits.slice(0, -1)
+                        }
+                        return { ...current, phone: formatPhoneInput(digits) }
+                      })
+                      clearError('newCustomerPhone')
+                    }}
+                    placeholder="(555) 123-4567"
+                    aria-invalid={Boolean(errors.newCustomerPhone)}
+                    className={inputClass}
+                  />
+                  <FieldError message={errors.newCustomerPhone} />
+                </div>
+                <div>
+                  <label htmlFor="new-email" className="sr-only">
+                    Email
+                  </label>
+                  <input
+                    id="new-email"
+                    type="email"
+                    value={newCustomer.email}
+                    onChange={(event) => {
+                      setNewCustomer((current) => ({ ...current, email: event.target.value }))
+                      clearError('newCustomerEmail')
+                    }}
+                    placeholder="Email"
+                    aria-invalid={Boolean(errors.newCustomerEmail)}
+                    className={inputClass}
+                  />
+                  <FieldError message={errors.newCustomerEmail} />
+                </div>
+              </div>
+
+              <div>
+                <label htmlFor="new-address" className="sr-only">
+                  Address
+                </label>
+                <input
+                  id="new-address"
+                  type="text"
+                  value={newCustomer.address}
+                  onChange={(event) =>
+                    setNewCustomer((current) => ({ ...current, address: event.target.value }))
+                  }
+                  placeholder="Address"
+                  className={inputClass}
+                />
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       <fieldset>
