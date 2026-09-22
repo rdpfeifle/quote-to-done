@@ -13,7 +13,7 @@ next-env.d.ts
 # secrets — covers .env, .env.local, .env.production, etc.
 # .env.example is the one exception: it documents the keys with no values.
 .env*
-!.env.example
+.env.example
 
 # credentials and certs
 *.pem

@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 
 import { AirtableError, createJob, listJobs } from '@/lib/airtable'
-import { isServiceType } from '@/lib/types'
+import { isSelectValue } from '@/lib/types'
 
 function errorResponse(error: unknown) {
   if (error instanceof AirtableError) {
@@ -27,22 +27,25 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Request body must be JSON.' }, { status: 400 })
   }
 
-  const { title, customerId, serviceType, scheduledDate, quoteAmount } = (body ?? {}) as Record<
-    string,
-    unknown
-  >
+  const { customerId, jobType, equipment, priority, scheduledDate, quoteAmount, notes } = (body ??
+    {}) as Record<string, unknown>
 
-  // Validate before Airtable sees it — an unknown select value would otherwise
-  // be rejected opaquely, or worse, create a stray option on the base.
-  const trimmedTitle = typeof title === 'string' ? title.trim() : ''
-  if (!trimmedTitle) {
-    return NextResponse.json({ error: 'Job title is required.' }, { status: 400 })
-  }
+  // Title is not accepted: it is a formula field derived from Equipment,
+  // Job Type and Customer, and Airtable rejects writes to it.
   if (typeof customerId !== 'string' || !customerId.startsWith('rec')) {
     return NextResponse.json({ error: 'A valid customer is required.' }, { status: 400 })
   }
-  if (!isServiceType(serviceType)) {
-    return NextResponse.json({ error: 'A valid service type is required.' }, { status: 400 })
+  if (!isSelectValue(jobType)) {
+    return NextResponse.json({ error: 'A job type is required.' }, { status: 400 })
+  }
+  if (!isSelectValue(equipment)) {
+    return NextResponse.json({ error: 'Equipment is required.' }, { status: 400 })
+  }
+  if (priority != null && !isSelectValue(priority)) {
+    return NextResponse.json({ error: 'Priority must be a valid option.' }, { status: 400 })
+  }
+  if (notes != null && typeof notes !== 'string') {
+    return NextResponse.json({ error: 'Notes must be text.' }, { status: 400 })
   }
   if (quoteAmount != null && (typeof quoteAmount !== 'number' || quoteAmount < 0)) {
     return NextResponse.json({ error: 'Quote amount must be zero or more.' }, { status: 400 })
@@ -53,11 +56,13 @@ export async function POST(request: Request) {
 
   try {
     const job = await createJob({
-      title: trimmedTitle,
       customerId,
-      serviceType,
-      scheduledDate: scheduledDate ?? null,
-      quoteAmount: quoteAmount ?? null,
+      jobType,
+      equipment,
+      priority: (priority as string | null) ?? null,
+      scheduledDate: (scheduledDate as string | null) ?? null,
+      quoteAmount: (quoteAmount as number | null) ?? null,
+      notes: (notes as string | null) ?? null,
     })
     return NextResponse.json({ job }, { status: 201 })
   } catch (error) {

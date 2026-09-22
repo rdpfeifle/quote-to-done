@@ -1,6 +1,6 @@
-import { Droplet, Flame, Snowflake, SprayCan, Wind, Wrench, Zap } from 'lucide-react'
+import { AlertTriangle, Droplet, Flame, Snowflake, SprayCan, Wind, Wrench, Zap } from 'lucide-react'
 
-import type { ServiceType, Status } from '@/lib/types'
+import type { Status } from '@/lib/types'
 
 /*
  * Status owns color in this UI; service type owns the icon. Four status colors
@@ -34,20 +34,22 @@ export const STATUS_STYLES: Record<Status, { chip: string; bar: string; dot: str
 
 /*
  * Matched on keywords rather than exact names, so renaming an option in
- * Airtable ("AC Repair", "Heating Install") still lands on a sensible icon.
+ * Airtable ("AC", "Heat Pump", "Water Heater") still lands on a sensible icon.
  * Anything unrecognised falls back to a wrench.
  */
-const SERVICE_ICON_RULES: [RegExp, typeof Droplet][] = [
-  [/cool|^ac\b|air ?con|refriger/i, Snowflake],
-  [/heat|furnace|boiler|burner/i, Flame],
-  [/vent|duct|air|hvac/i, Wind],
-  [/plumb|drain|water|pipe/i, Droplet],
+const EQUIPMENT_ICON_RULES: [RegExp, typeof Droplet][] = [
+  [/water ?heater|boiler/i, Droplet],
+  [/heat ?pump/i, Wind],
+  [/furnace|heat|burner/i, Flame],
+  [/\bac\b|air ?con|cool|refriger|condens/i, Snowflake],
+  [/duct|vent|air/i, Wind],
+  [/plumb|drain|pipe|water/i, Droplet],
   [/electric|wiring|panel/i, Zap],
   [/clean|filter/i, SprayCan],
 ]
 
-export function serviceIcon(serviceType: ServiceType): typeof Droplet {
-  return SERVICE_ICON_RULES.find(([pattern]) => pattern.test(serviceType))?.[1] ?? Wrench
+export function equipmentIcon(equipment: string): typeof Droplet {
+  return EQUIPMENT_ICON_RULES.find(([pattern]) => pattern.test(equipment))?.[1] ?? Wrench
 }
 
 export function StatusChip({ status }: { status: Status }) {
@@ -60,13 +62,35 @@ export function StatusChip({ status }: { status: Status }) {
   )
 }
 
-export function ServiceChip({ serviceType }: { serviceType: ServiceType | null }) {
-  if (!serviceType) return null
-  const Icon = serviceIcon(serviceType)
+/** The physical unit — carries the icon, since it is the concrete thing. */
+export function EquipmentChip({ equipment }: { equipment: string | null }) {
+  if (!equipment) return null
+  const Icon = equipmentIcon(equipment)
   return (
     <span className="inline-flex items-center gap-1.5 rounded-full border border-steel-300 px-2.5 py-1 text-xs font-medium text-steel-500">
       <Icon size={13} strokeWidth={2} aria-hidden />
-      {serviceType}
+      {equipment}
+    </span>
+  )
+}
+
+/** The work being done — plain, so it does not compete with the equipment. */
+export function JobTypeChip({ jobType }: { jobType: string | null }) {
+  if (!jobType) return null
+  return (
+    <span className="inline-flex items-center rounded-full bg-steel-100 px-2.5 py-1 text-xs font-medium text-steel-500">
+      {jobType}
+    </span>
+  )
+}
+
+/** Only Urgent earns color; Normal priority stays silent to avoid noise. */
+export function PriorityBadge({ priority }: { priority: string | null }) {
+  if (!priority || !/urgent|emergency|high/i.test(priority)) return null
+  return (
+    <span className="inline-flex items-center gap-1 rounded-full bg-alert-600 px-2 py-0.5 font-display text-xs font-bold uppercase tracking-wide text-white">
+      <AlertTriangle size={11} strokeWidth={3} aria-hidden />
+      {priority}
     </span>
   )
 }

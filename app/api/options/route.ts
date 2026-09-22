@@ -1,10 +1,10 @@
 import { NextResponse } from 'next/server'
 
-import { AirtableError, listServiceTypes } from '@/lib/airtable'
+import { AirtableError, listJobOptions } from '@/lib/airtable'
 
 export async function GET() {
   try {
-    return NextResponse.json({ serviceTypes: await listServiceTypes() })
+    return NextResponse.json(await listJobOptions())
   } catch (error) {
     if (error instanceof AirtableError) {
       return NextResponse.json({ error: error.message }, { status: error.status })

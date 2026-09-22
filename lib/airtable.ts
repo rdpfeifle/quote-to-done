@@ -3,9 +3,9 @@ import 'server-only'
 import {
   type Client,
   type Job,
+  type JobOptions,
   type NewJobInput,
   type Status,
-  isServiceType,
   isStatus,
 } from './types'
 
@@ -24,12 +24,15 @@ const FIELDS = {
   email: 'Email',
   address: 'Address',
   // Jobs
-  title: 'Title',
+  title: 'Title', // formula — read-only, never sent on write
   customer: 'Customer',
-  serviceType: 'Service Type',
+  jobType: 'Job Type',
+  equipment: 'Equipment',
+  priority: 'Priority',
   status: 'Status',
   quoteAmount: 'Quote Amount',
   scheduledDate: 'Scheduled Date',
+  notes: 'Notes',
 } as const
 
 /** Base IDs are not secrets, so a default keeps local setup to a single env var. */
@@ -145,23 +148,45 @@ function toClient(record: AirtableRecord): Client {
   }
 }
 
+/**
+ * Title is an Airtable formula over Equipment, Job Type and Customer. A record
+ * missing any of those comes back blank, so rebuild the same shape locally
+ * rather than rendering an empty card.
+ */
+function jobTitle(
+  formulaValue: string | null,
+  equipment: string | null,
+  jobType: string | null,
+  customerName: string | null,
+): string {
+  if (formulaValue) return formulaValue
+  const subject = [equipment, jobType].filter(Boolean).join(' ')
+  const parts = [subject, customerName].filter(Boolean)
+  return parts.length > 0 ? parts.join(' - ') : 'Untitled job'
+}
+
 function toJob(record: AirtableRecord, clientNames: Map<string, string>): Job {
   const links = record.fields[FIELDS.customer]
   const customerId = Array.isArray(links) && typeof links[0] === 'string' ? links[0] : null
-  const serviceType = record.fields[FIELDS.serviceType]
   const status = record.fields[FIELDS.status]
   const amount = record.fields[FIELDS.quoteAmount]
+  const customerName = customerId ? clientNames.get(customerId) ?? null : null
+  const equipment = text(record.fields[FIELDS.equipment])
+  const jobType = text(record.fields[FIELDS.jobType])
 
   return {
     id: record.id,
-    title: text(record.fields[FIELDS.title]) ?? 'Untitled job',
+    title: jobTitle(text(record.fields[FIELDS.title]), equipment, jobType, customerName),
     customerId,
-    customerName: customerId ? clientNames.get(customerId) ?? null : null,
-    serviceType: isServiceType(serviceType) ? serviceType : null,
+    customerName,
+    jobType,
+    equipment,
+    priority: text(record.fields[FIELDS.priority]),
     // A record with a blank Status sorts into the first column rather than vanishing.
     status: isStatus(status) ? status : 'Requested',
     quoteAmount: typeof amount === 'number' ? amount : null,
     scheduledDate: text(record.fields[FIELDS.scheduledDate]),
+    notes: text(record.fields[FIELDS.notes]),
   }
 }
 
@@ -186,39 +211,58 @@ interface TableSchema {
 }
 
 /**
- * The Service Type options as configured in Airtable, so editing the select in
- * the base updates the form with no code change. Falls back to the values
- * already used on Jobs records if the token lacks `schema.bases:read`.
+ * The single-select options as configured in Airtable, so editing the choices
+ * in the base updates the form with no code change. Falls back to the values
+ * already present on Jobs records if the token lacks `schema.bases:read`.
  */
-export async function listServiceTypes(): Promise<string[]> {
+export async function listJobOptions(): Promise<JobOptions> {
+  const wanted = [FIELDS.jobType, FIELDS.equipment, FIELDS.priority]
+
   try {
     const { tables } = await metaRequest<{ tables: TableSchema[] }>('tables')
-    const choices = tables
-      .find((table) => table.name === TABLES.jobs)
-      ?.fields.find((field) => field.name === FIELDS.serviceType)?.options?.choices
-    if (choices?.length) return choices.map((choice) => choice.name)
+    const jobFields = tables.find((table) => table.name === TABLES.jobs)?.fields ?? []
+    const choicesFor = (name: string) =>
+      jobFields.find((field) => field.name === name)?.options?.choices?.map((c) => c.name) ?? []
+
+    const fromSchema = {
+      jobTypes: choicesFor(FIELDS.jobType),
+      equipment: choicesFor(FIELDS.equipment),
+      priorities: choicesFor(FIELDS.priority),
+    }
+    if (Object.values(fromSchema).some((list) => list.length > 0)) return fromSchema
   } catch {
     // Missing schema scope is not fatal — fall through to the record scan.
   }
 
   const records = await listAll(TABLES.jobs)
-  const used = new Set<string>()
+  const used = new Map<string, Set<string>>(wanted.map((name) => [name, new Set<string>()]))
   for (const record of records) {
-    const value = record.fields[FIELDS.serviceType]
-    if (typeof value === 'string' && value) used.add(value)
+    for (const name of wanted) {
+      const value = record.fields[name]
+      if (typeof value === 'string' && value) used.get(name)!.add(value)
+    }
   }
-  return [...used].sort()
+  const sorted = (name: string) => [...used.get(name)!].sort()
+
+  return {
+    jobTypes: sorted(FIELDS.jobType),
+    equipment: sorted(FIELDS.equipment),
+    priorities: sorted(FIELDS.priority),
+  }
 }
 
 export async function createJob(input: NewJobInput): Promise<Job> {
+  // Title is a formula field: Airtable rejects any attempt to write it.
   const fields: Record<string, unknown> = {
-    [FIELDS.title]: input.title,
     [FIELDS.customer]: [input.customerId],
-    [FIELDS.serviceType]: input.serviceType,
+    [FIELDS.jobType]: input.jobType,
+    [FIELDS.equipment]: input.equipment,
     [FIELDS.status]: 'Requested' satisfies Status,
   }
+  if (input.priority) fields[FIELDS.priority] = input.priority
   if (input.scheduledDate) fields[FIELDS.scheduledDate] = input.scheduledDate
   if (typeof input.quoteAmount === 'number') fields[FIELDS.quoteAmount] = input.quoteAmount
+  if (input.notes) fields[FIELDS.notes] = input.notes
 
   const record = await request<AirtableRecord>(TABLES.jobs, {
     method: 'POST',
